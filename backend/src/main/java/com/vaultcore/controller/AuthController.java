@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -16,28 +17,23 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
+
+import com.vaultcore.aspect.NoAudit;
 
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private final WebClient webClient;
-    private final StringRedisTemplate redisTemplate;
-    private final PasswordEncoder passwordEncoder;
 
     @Value("${KEYCLOAK_ISSUER_URI:http://localhost:9090/realms/vaultcore}")
     private String keycloakIssuerUri;
@@ -48,10 +44,8 @@ public class AuthController {
     @Value("${KEYCLOAK_CLIENT_SECRET:vaultcore-secret}")
     private String keycloakClientSecret;
 
-    public AuthController(WebClient webClient, StringRedisTemplate redisTemplate, PasswordEncoder passwordEncoder) {
+    public AuthController(WebClient webClient) {
         this.webClient = webClient;
-        this.redisTemplate = redisTemplate;
-        this.passwordEncoder = passwordEncoder;
     }
 
     public record LoginRequest(
@@ -67,6 +61,102 @@ public class AuthController {
             String token_type
     ) {}
 
+    public record RegisterRequest(
+            @NotBlank @Size(max = 60) String firstName,
+            @NotBlank @Size(max = 60) String lastName,
+            @NotBlank @Email String email,
+            @NotBlank @Size(min = 8, max = 128) String password
+    ) {}
+
+    public record KeycloakAccessTokenResponse(String access_token) {}
+
+    public record KeycloakCredential(String type, String value, Boolean temporary) {}
+
+    public record KeycloakCreateUserRequest(
+            String username,
+            String email,
+            String firstName,
+            String lastName,
+            Boolean enabled,
+            Boolean emailVerified,
+            List<KeycloakCredential> credentials
+    ) {}
+
+    @NoAudit
+    @PostMapping("/register")
+    public ResponseEntity<ApiResponse<Void>> register(@Valid @RequestBody RegisterRequest request) {
+        String tokenEndpoint = keycloakIssuerUri + "/protocol/openid-connect/token";
+        String adminUsersEndpoint = keycloakIssuerUri.replace("/realms/vaultcore", "/admin/realms/vaultcore/users");
+
+        KeycloakAccessTokenResponse adminToken = webClient.post()
+                .uri(tokenEndpoint)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(BodyInserters.fromFormData("grant_type", "client_credentials")
+                        .with("client_id", keycloakClientId)
+                        .with("client_secret", keycloakClientSecret))
+                .retrieve()
+                .bodyToMono(KeycloakAccessTokenResponse.class)
+                .timeout(Duration.ofSeconds(10))
+                .onErrorResume(ex -> Mono.empty())
+                .blockOptional()
+                .orElse(null);
+
+        if (adminToken == null || adminToken.access_token() == null) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(ApiResponse.<Void>builder()
+                            .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                            .error("REGISTRATION_UNAVAILABLE")
+                            .message("Unable to initialize registration")
+                            .timestamp(LocalDateTime.now())
+                            .data(null)
+                            .build());
+        }
+
+        KeycloakCreateUserRequest createUser = new KeycloakCreateUserRequest(
+                request.email().toLowerCase(),
+                request.email().toLowerCase(),
+                request.firstName().trim(),
+                request.lastName().trim(),
+                true,
+                true,
+                List.of(new KeycloakCredential("password", request.password(), false))
+        );
+
+        try {
+            webClient.post()
+                    .uri(adminUsersEndpoint)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .headers(h -> h.setBearerAuth(adminToken.access_token()))
+                    .bodyValue(createUser)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .timeout(Duration.ofSeconds(10))
+                    .block();
+        } catch (WebClientResponseException ex) {
+            if (ex.getStatusCode() == HttpStatus.CONFLICT) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResponse.<Void>builder()
+                                .status(HttpStatus.CONFLICT.value())
+                                .error("EMAIL_EXISTS")
+                                .message("An account with this email already exists")
+                                .timestamp(LocalDateTime.now())
+                                .data(null)
+                                .build());
+            }
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.<Void>builder()
+                            .status(HttpStatus.BAD_REQUEST.value())
+                            .error("REGISTRATION_FAILED")
+                            .message("Registration failed. Please verify your details and try again.")
+                            .timestamp(LocalDateTime.now())
+                            .data(null)
+                            .build());
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Registration successful", null));
+    }
+
+    @NoAudit
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<Map<String, Object>>> login(
             @Valid @RequestBody LoginRequest request,
@@ -85,8 +175,9 @@ public class AuthController {
                 .retrieve()
                 .bodyToMono(KeycloakTokenResponse.class)
                 .timeout(Duration.ofSeconds(10))
-                .onErrorReturn(null)
-                .block();
+                .onErrorResume(ex -> Mono.empty())
+                .blockOptional()
+                .orElse(null);
 
         if (tokens == null || tokens.refresh_token() == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -105,6 +196,7 @@ public class AuthController {
                 Map.of("accessToken", tokens.access_token(), "expiresIn", tokens.expires_in())));
     }
 
+    @NoAudit
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<Map<String, Object>>> refresh(
             HttpServletRequest request,
@@ -134,8 +226,9 @@ public class AuthController {
                 .retrieve()
                 .bodyToMono(KeycloakTokenResponse.class)
                 .timeout(Duration.ofSeconds(10))
-                .onErrorReturn(null)
-                .block();
+                .onErrorResume(ex -> Mono.empty())
+                .blockOptional()
+                .orElse(null);
 
         if (tokens == null || tokens.refresh_token() == null) {
             clearRefreshCookie(response);
@@ -155,6 +248,7 @@ public class AuthController {
                 Map.of("accessToken", tokens.access_token(), "expiresIn", tokens.expires_in())));
     }
 
+    @NoAudit
     @DeleteMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
             HttpServletRequest request,
@@ -182,8 +276,6 @@ public class AuthController {
 
         return ResponseEntity.ok(ApiResponse.ok("Logged out", null));
     }
-
-    // MFA endpoints extracted to MfaController according to PRD component specs.
 
     private void setRefreshCookie(HttpServletResponse response, String refreshToken, Integer refreshExpiresInSeconds) {
         int maxAgeSeconds = refreshExpiresInSeconds != null ? refreshExpiresInSeconds : 7 * 24 * 60 * 60;

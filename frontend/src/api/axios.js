@@ -1,20 +1,34 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
   withCredentials: true,
 });
 
-// Request interceptor — attach JWT token
+// Request interceptor — attach JWT token and user ID
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Attach X-User-Id strictly required by backend controller paths for isolation
+    const userStr = localStorage.getItem('user');
+    if (userStr) {
+      try {
+        const user = JSON.parse(userStr);
+        if (user && user.id) {
+          config.headers['X-User-Id'] = user.id;
+        }
+      } catch (e) {
+        // ignore parse error loosely
+      }
+    }
+    
     return config;
   },
   (error) => Promise.reject(error)

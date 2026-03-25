@@ -1,42 +1,59 @@
 package com.vaultcore.entity;
 
 import jakarta.persistence.*;
-import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "mfa_tokens")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
 public class MfaToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
-    private UUID userId;
-
-    @Column(name = "token_hash", nullable = false, length = 255)
-    private String tokenHash;
-
-    @Column(name = "transaction_reference", nullable = false, length = 50)
-    private String transactionReference;
+    @Column(nullable = false)
+    private String token;
 
     @Column(nullable = false)
-    @Builder.Default
-    private Boolean used = false;
+    private String otp;
 
-    @Column(name = "expires_at", nullable = false)
-    private LocalDateTime expiresAt;
+    @Column(nullable = false)
+    private UUID userId;
 
-    @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    @Column(nullable = false)
+    private LocalDateTime expiry;
+
+    @Column(nullable = false)
+    private boolean used = false;
+
+    public MfaToken() {}
+
+    public MfaToken(UUID id, String token, String otp, UUID userId, LocalDateTime expiry, boolean used) {
+        this.id = id;
+        this.token = token;
+        this.otp = otp;
+        this.userId = userId;
+        this.expiry = expiry;
+        this.used = used;
+    }
+
+    // Getters and Setters
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+
+    public String getToken() { return token; }
+    public void setToken(String token) { this.token = token; }
+
+    public String getOtp() { return otp; }
+    public void setOtp(String otp) { this.otp = otp; }
+
+    public UUID getUserId() { return userId; }
+    public void setUserId(UUID userId) { this.userId = userId; }
+
+    public LocalDateTime getExpiry() { return expiry; }
+    public void setExpiry(LocalDateTime expiry) { this.expiry = expiry; }
+
+    public boolean isUsed() { return used; }
+    public void setUsed(boolean used) { this.used = used; }
 }

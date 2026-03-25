@@ -3,13 +3,13 @@ package com.vaultcore.aspect;
 import com.vaultcore.dto.TransferRequest;
 import com.vaultcore.exception.PendingMfaException;
 import com.vaultcore.service.NotificationService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.vaultcore.service.LocalOtpStore;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -20,22 +20,26 @@ import java.util.concurrent.TimeUnit;
 
 @Aspect
 @Component
-@RequiredArgsConstructor
-@Slf4j
 public class FraudInterceptor {
 
+    private static final Logger log = LoggerFactory.getLogger(FraudInterceptor.class);
+
     private final NotificationService notificationService;
-    private final StringRedisTemplate redisTemplate;
-    // We'll use a password encoder to store hashed OTPs as requested, but BCrypt might be too slow for high-throughput
-    // We'll stick to BCrypt if a bean is available, or just store plaintext in Redis if it's protected.
-    // The spec literally says: "BCrypt hash OTP, store in Redis key otp:{userId}"
+    private final LocalOtpStore localOtpStore;
     private final PasswordEncoder passwordEncoder;
 
-    @Value("${app.fraud.threshold:1000}")
+    /** PRD default {@code fraud.threshold.amount}: 1000.00 */
+    @Value("${app.fraud.threshold:1000.00}")
     private BigDecimal fraudThreshold;
 
     @Value("${app.fraud.otp-ttl-seconds:300}")
     private long otpTtlSeconds;
+
+    public FraudInterceptor(NotificationService notificationService, LocalOtpStore localOtpStore, PasswordEncoder passwordEncoder) {
+        this.notificationService = notificationService;
+        this.localOtpStore = localOtpStore;
+        this.passwordEncoder = passwordEncoder;
+    }
 
     @Around("execution(* com.vaultcore.service.TransferService.transfer(..))")
     public Object interceptTransfer(ProceedingJoinPoint joinPoint) throws Throwable {
@@ -59,12 +63,12 @@ public class FraudInterceptor {
             if (amount != null && amount.compareTo(fraudThreshold) > 0) {
                 
                 String mfaVerifiedKey = "mfa_verified:" + userId;
-                String isVerified = redisTemplate.opsForValue().get(mfaVerifiedKey);
+                String isVerified = localOtpStore.get(mfaVerifiedKey);
                 
                 if ("true".equalsIgnoreCase(isVerified)) {
                     log.info("[FRAUD-INTERCEPTOR] MFA already verified for userId: {}. Proceeding with large transfer.", userId);
                     // Consume the verified token so it's one-time use
-                    redisTemplate.delete(mfaVerifiedKey);
+                    localOtpStore.delete(mfaVerifiedKey);
                     return joinPoint.proceed();
                 } else {
                     log.warn("[FRAUD-INTERCEPTOR] Large transfer ({} > {}) detected. Triggering MFA for userId: {}", 
@@ -76,7 +80,7 @@ public class FraudInterceptor {
                     // BCrypt hash OTP and store
                     String hashedOtp = passwordEncoder.encode(otp);
                     String otpKey = "otp:" + userId;
-                    redisTemplate.opsForValue().set(otpKey, hashedOtp, otpTtlSeconds, TimeUnit.SECONDS);
+                    localOtpStore.set(otpKey, hashedOtp);
                     
                     // Fire Notification Service async
                     notificationService.sendChallenge(userId, otp);

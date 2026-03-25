@@ -39,12 +39,17 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
+    validate-on-migrate: true
+    out-of-order: false
 
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      timeout: 2000ms
+  # data:
+  #   redis:
+  #     host: ${REDIS_HOST:localhost}
+  #     port: ${REDIS_PORT:6379}
+  #     timeout: 2000ms
+
+  cache:
+    type: simple
 
   security:
     oauth2:
@@ -62,7 +67,12 @@ spring:
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:9090/realms/vaultcore}
+            # Use explicit endpoints to avoid startup-time OIDC discovery against Keycloak.
+            # Discovery (issuer-uri) would fail if Keycloak is not running during boot.
+            authorization-uri: ${KEYCLOAK_URL:http://localhost:9090}/realms/vaultcore/protocol/openid-connect/auth
+            token-uri: ${KEYCLOAK_URL:http://localhost:9090}/realms/vaultcore/protocol/openid-connect/token
+            user-info-uri: ${KEYCLOAK_URL:http://localhost:9090}/realms/vaultcore/protocol/openid-connect/userinfo
+            jwk-set-uri: ${KEYCLOAK_JWK_URI:http://localhost:9090/realms/vaultcore/protocol/openid-connect/certs}
             user-name-attribute: preferred_username
 
   jackson:
@@ -73,13 +83,20 @@ spring:
 # Application-specific config
 app:
   fraud:
-    threshold: 10000.00
+    threshold: 1000.00
     otp-ttl-seconds: 300
+    otp-max-attempts: 3
   cache:
     balance-ttl-seconds: 30
     stock-ttl-seconds: 5
   statement:
     encryption-key: ${STATEMENT_ENC_KEY:VaultCoreAES128K}
+  stock:
+    api:
+      # Alpha Vantage real-time stock market API
+      # Free tier: 25 req/day, 5 req/min
+      # Key is baked in as default — override via env var: ALPHAVANTAGE_API_KEY=your_key
+      key: ${ALPHAVANTAGE_API_KEY:PTE51U2RQYRR4U24}
 
 management:
   endpoints:
@@ -90,10 +107,46 @@ management:
     health:
       show-details: when-authorized
 
+
+# Resilience4j Config
+resilience4j:
+  circuitbreaker:
+    instances:
+      stockService:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+      # Finnhub API client — opens fast on failures to protect the trade flow
+      stockApiClient:
+        registerHealthIndicator: true
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 3
+        permittedNumberOfCallsInHalfOpenState: 2
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 60
+        slowCallDurationThreshold: 3s
+        slowCallRateThreshold: 80
+  retry:
+    instances:
+      stockService:
+        maxAttempts: 3
+        waitDuration: 500ms
+  ratelimiter:
+    instances:
+      stockService:
+        limitForPeriod: 50
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
+
 logging:
   level:
     com.vaultcore: INFO
     org.springframework.security: INFO
     org.hibernate.SQL: WARN
+    io.github.resilience4j: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

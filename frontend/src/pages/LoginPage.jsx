@@ -28,89 +28,89 @@ export default function LoginPage() {
       );
 
       const { access_token, refresh_token } = response.data;
-      // Decode JWT payload for user info
-      const payload = JSON.parse(atob(access_token.split('.')[1]));
+      
+      // IDENTITY SYNC: Fetch internal user profile from backend
+      // VITE_BACKEND_URL is the bare server base (no /api/v1)
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+      const profileResponse = await axios.get(`${backendUrl}/api/v1/users/me`, {
+        headers: { Authorization: `Bearer ${access_token}` }
+      });
+
+      const internalUser = profileResponse.data;
 
       dispatch(loginSuccess({
         token: access_token,
         refreshToken: refresh_token,
         user: {
-          id: payload.sub,
-          username: payload.preferred_username,
-          email: payload.email,
-          fullName: payload.name || payload.preferred_username,
-          role: payload.realm_access?.roles?.includes('ADMIN') ? 'ADMIN' : 'USER',
+          id: internalUser.id,           // Internal DB UUID
+          keycloakId: internalUser.id,   // Also map to id for compatibility
+          username: internalUser.username,
+          email: internalUser.email,
+          fullName: internalUser.fullName,
+          role: internalUser.role,
         },
       }));
       navigate('/');
     } catch (err) {
-      dispatch(loginFailure(err.response?.data?.error_description || 'Invalid credentials'));
+      console.error('Login error:', err);
+      const msg = err.response?.data?.error_description
+        || err.response?.data?.message
+        || err.message
+        || 'Invalid credentials or server unavailable';
+      dispatch(loginFailure(msg));
     }
-  };
-
-  const handleDemoLogin = (demoUser, demoPass) => {
-    setUsername(demoUser);
-    setPassword(demoPass);
   };
 
   return (
     <div className="login-page">
       <div className="login-bg">
         <div className="login-bg-gradient"></div>
-        <div className="login-bg-pattern"></div>
       </div>
       <div className="login-container">
         <div className="login-card">
           <div className="login-header">
             <div className="login-logo">
-              <span className="logo-icon large">◆</span>
+              <span className="material-symbols-outlined logo-icon">shield</span>
             </div>
-            <h1>VaultCore Financial</h1>
-            <p className="login-subtitle">Neo Banking Core System</p>
+            <h1>VaultCore</h1>
+            <p className="login-subtitle">Secure access to your institutional ledger.</p>
           </div>
 
           <form onSubmit={handleLogin} className="login-form">
             {error && <div className="error-message">{error}</div>}
             <div className="form-group">
-              <label htmlFor="username">Username</label>
+              <label htmlFor="username">Node Identifier</label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                placeholder="Username or ID"
                 required
               />
             </div>
             <div className="form-group">
-              <label htmlFor="password">Password</label>
+              <label htmlFor="password">Security Protocol</label>
               <input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder="Secure Password"
                 required
               />
             </div>
             <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'AUTHENTICATING...' : 'AUTHORIZE SESSION'}
             </button>
           </form>
 
-          <div className="demo-credentials">
-            <p className="demo-title">Demo Accounts</p>
-            <div className="demo-buttons">
-              <button className="demo-btn" onClick={() => handleDemoLogin('john.doe', 'password123')}>
-                👤 John Doe (User)
-              </button>
-              <button className="demo-btn" onClick={() => handleDemoLogin('admin', 'admin123')}>
-                🛡️ Admin
-              </button>
-            </div>
+          <div className="login-footer">
+            <p>Non-registered node? <span className="signup-link" onClick={() => navigate('/register')}>Request Access</span></p>
           </div>
         </div>
       </div>
     </div>
+
   );
 }

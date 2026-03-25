@@ -1,7 +1,7 @@
 package com.vaultcore.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -14,11 +14,15 @@ import java.util.UUID;
 
 @Service
 @Profile("prod")
-@RequiredArgsConstructor
-@Slf4j
 public class SmtpNotificationService implements NotificationService {
 
+    private static final Logger log = LoggerFactory.getLogger(SmtpNotificationService.class);
+
     private final JavaMailSender javaMailSender;
+
+    public SmtpNotificationService(JavaMailSender javaMailSender) {
+        this.javaMailSender = javaMailSender;
+    }
 
     @Async
     @Override

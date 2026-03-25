@@ -7,6 +7,8 @@ import com.vaultcore.repository.AccountRepository;
 import com.vaultcore.repository.UserRepository;
 import com.vaultcore.repository.TransactionRepository;
 import com.vaultcore.repository.LedgerEntryRepository;
+import com.vaultcore.service.AccountService;
+import com.vaultcore.service.AuditService;
 import com.vaultcore.service.TransferService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +39,12 @@ public class LatencyBenchmarkTest {
     @MockBean
     private ClientRegistrationRepository clientRegistrationRepository;
 
+    @MockBean
+    private AuditService auditService;
+
+    @MockBean
+    private AccountService accountService;
+
     @Autowired
     private AccountRepository accountRepository;
 
@@ -65,6 +73,7 @@ public class LatencyBenchmarkTest {
         sourceAccount.setUser(user);
         sourceAccount.setBalance(new BigDecimal("1000000.00"));
         sourceAccount.setCurrency("USD");
+        sourceAccount.setType("CHECKING");
         sourceAccount.setActive(true);
 
         Account destAccount = new Account();
@@ -72,6 +81,7 @@ public class LatencyBenchmarkTest {
         destAccount.setUser(user);
         destAccount.setBalance(new BigDecimal("0.00"));
         destAccount.setCurrency("USD");
+        destAccount.setType("CHECKING");
         destAccount.setActive(true);
 
         accountRepository.save(sourceAccount);

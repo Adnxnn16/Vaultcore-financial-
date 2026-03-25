@@ -10,8 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import com.vaultcore.service.LocalOtpStore;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -31,10 +30,7 @@ public class FraudInterceptorTest {
     private NotificationService notificationService;
 
     @Mock
-    private StringRedisTemplate redisTemplate;
-
-    @Mock
-    private ValueOperations<String, String> valueOperations;
+    private LocalOtpStore localOtpStore;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -69,7 +65,7 @@ public class FraudInterceptorTest {
 
         assertEquals("SUCCESS", result);
         verify(joinPoint, times(1)).proceed();
-        verifyNoInteractions(redisTemplate);
+        verifyNoInteractions(localOtpStore);
         verifyNoInteractions(notificationService);
     }
 
@@ -79,8 +75,7 @@ public class FraudInterceptorTest {
         request.setAmount(new BigDecimal("1500.00"));
         when(joinPoint.getArgs()).thenReturn(new Object[]{request, userId});
         
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get("mfa_verified:" + userId)).thenReturn(null);
+        when(localOtpStore.get("mfa_verified:" + userId)).thenReturn(null);
         when(passwordEncoder.encode(anyString())).thenReturn("hashed-otp");
 
         // Act & Assert
@@ -91,7 +86,7 @@ public class FraudInterceptorTest {
         assertEquals("PENDING_MFA", ex.getTransferReference());
 
         // Verify OTP was stored
-        verify(valueOperations, times(1)).set(eq("otp:" + userId), eq("hashed-otp"), eq(300L), eq(TimeUnit.SECONDS));
+        verify(localOtpStore, times(1)).set(eq("otp:" + userId), eq("hashed-otp"));
         verify(notificationService, times(1)).sendChallenge(eq(userId), anyString());
         verify(joinPoint, never()).proceed(); // Transfer must halt
     }
@@ -102,8 +97,7 @@ public class FraudInterceptorTest {
         request.setAmount(new BigDecimal("1500.00"));
         when(joinPoint.getArgs()).thenReturn(new Object[]{request, userId});
         
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get("mfa_verified:" + userId)).thenReturn("true");
+        when(localOtpStore.get("mfa_verified:" + userId)).thenReturn("true");
 
         when(joinPoint.proceed()).thenReturn("SUCCESS");
 
@@ -112,7 +106,7 @@ public class FraudInterceptorTest {
 
         // Assert
         assertEquals("SUCCESS", result);
-        verify(redisTemplate, times(1)).delete("mfa_verified:" + userId);
+        verify(localOtpStore, times(1)).delete("mfa_verified:" + userId);
         verify(joinPoint, times(1)).proceed();
         verifyNoInteractions(notificationService); // OTP not dispatched again
     }

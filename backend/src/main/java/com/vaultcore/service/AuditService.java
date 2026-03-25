@@ -1,24 +1,38 @@
 package com.vaultcore.service;
 
 import com.vaultcore.entity.AuditLog;
+import com.vaultcore.repository.UserRepository;
 import com.vaultcore.repository.AuditLogRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import jakarta.persistence.criteria.Predicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class AuditService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuditService.class);
+
     private final AuditLogRepository auditLogRepository;
+    private final UserRepository userRepository;
+
+    public AuditService(AuditLogRepository auditLogRepository, UserRepository userRepository) {
+        this.auditLogRepository = auditLogRepository;
+        this.userRepository = userRepository;
+    }
 
     public Page<AuditLog> getAuditLogs(Pageable pageable) {
         return auditLogRepository.findAllByOrderByCreatedAtDesc(pageable);
@@ -30,6 +44,34 @@ public class AuditService {
 
     public Page<AuditLog> searchAuditLogs(String action, Pageable pageable) {
         return auditLogRepository.findByActionContainingIgnoreCaseOrderByCreatedAtDesc(action, pageable);
+    }
+
+    public Page<AuditLog> filterAuditLogs(UUID userId, String method, LocalDateTime from, LocalDateTime to, Pageable pageable) {
+        Specification<AuditLog> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (userId != null) {
+                predicates.add(cb.equal(root.get("userId"), userId));
+            }
+            if (method != null && !method.isBlank()) {
+                String like = "%" + method.toLowerCase(Locale.ROOT) + "%";
+                predicates.add(cb.like(cb.lower(root.get("methodName")), like));
+            }
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("createdAt"), to));
+            }
+            if (predicates.isEmpty()) {
+                return cb.conjunction();
+            }
+            return cb.and(predicates.toArray(Predicate[]::new));
+        };
+        return auditLogRepository.findAll(spec, pageable);
+    }
+
+    public Optional<AuditLog> getAuditLogById(UUID id) {
+        return auditLogRepository.findById(id);
     }
 
     public void logAction(String action, String methodName, String parameters, String result, String status, String errorMessage) {
@@ -51,7 +93,7 @@ public class AuditService {
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
                 String sub = jwt.getSubject();
-                return UUID.fromString(sub);
+                return userRepository.findByKeycloakId(sub).map(u -> u.getId()).orElse(null);
             }
         } catch (Exception e) {
             log.debug("Could not extract user ID from security context: {}", e.getMessage());

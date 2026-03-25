@@ -1,13 +1,13 @@
 package com.vaultcore.controller;
 
+import com.vaultcore.aspect.NoAudit;
 import com.vaultcore.dto.ApiResponse;
+import com.vaultcore.dto.MfaVerifyRequest;
+import com.vaultcore.service.MfaVerificationService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,48 +16,50 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api/v1/auth/mfa")
 public class MfaController {
 
-    private final StringRedisTemplate redisTemplate;
-    private final PasswordEncoder passwordEncoder;
+    private final MfaVerificationService mfaVerificationService;
 
-    public MfaController(StringRedisTemplate redisTemplate, PasswordEncoder passwordEncoder) {
-        this.redisTemplate = redisTemplate;
-        this.passwordEncoder = passwordEncoder;
+    public MfaController(MfaVerificationService mfaVerificationService) {
+        this.mfaVerificationService = mfaVerificationService;
     }
 
-    public record MfaVerifyRequest(@NotBlank String otp) {}
-
-    @PostMapping("/mfa/verify")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> verifyMfa(@Valid @RequestBody MfaVerifyRequest req) {
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !(auth.getPrincipal() instanceof Jwt jwt)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+    /**
+     * PRD §7 — POST /auth/mfa/verify. JWT subject must match {@code userId} in body.
+     */
+    @NoAudit
+    @PostMapping("/verify")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> verify(
+            @Valid @RequestBody MfaVerifyRequest request,
+            Authentication authentication
+    ) {
+        if (!(authentication.getPrincipal() instanceof Jwt jwt)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.<Map<String, Object>>builder()
+                            .status(HttpStatus.UNAUTHORIZED.value())
+                            .error("UNAUTHORIZED")
+                            .message("JWT required")
+                            .timestamp(LocalDateTime.now())
+                            .data(null)
+                            .build());
         }
-
-        String userId = jwt.getSubject();
-        String otpKey = "otp:" + userId;
-        String storedHashedOtp = redisTemplate.opsForValue().get(otpKey);
-
-        if (storedHashedOtp == null || !passwordEncoder.matches(req.otp(), storedHashedOtp)) {
+        if (!jwt.getSubject().equals(request.getUserId().toString())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResponse.<Map<String, Object>>builder()
                             .status(HttpStatus.FORBIDDEN.value())
-                            .error("INVALID_OTP")
-                            .message("The provided OTP is invalid or has expired.")
+                            .error("FORBIDDEN")
+                            .message("userId does not match authenticated subject")
                             .timestamp(LocalDateTime.now())
                             .data(null)
                             .build());
         }
 
-        // Mark MFA as verified
-        redisTemplate.delete(otpKey);
-        redisTemplate.opsForValue().set("mfa_verified:" + userId, "true", 5, TimeUnit.MINUTES);
+        mfaVerificationService.verifyOtp(request.getUserId(), request.getOtp());
 
-        return ResponseEntity.ok(ApiResponse.ok("MFA Verified. You can now proceed with your transfer.", null));
+        return ResponseEntity.ok(ApiResponse.ok("MFA verified; you may retry the transfer",
+                Map.of("userId", request.getUserId().toString())));
     }
 }

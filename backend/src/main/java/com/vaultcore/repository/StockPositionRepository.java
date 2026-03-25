@@ -10,6 +10,6 @@ import java.util.UUID;
 
 @Repository
 public interface StockPositionRepository extends JpaRepository<StockPosition, UUID> {
-    List<StockPosition> findByUserId(UUID userId);
-    Optional<StockPosition> findByUserIdAndSymbol(UUID userId, String symbol);
+    List<StockPosition> findByUser_Id(UUID userId);
+    Optional<StockPosition> findByUser_IdAndSymbol(UUID userId, String symbol);
 }

@@ -4,20 +4,17 @@ import com.vaultcore.entity.Transaction;
 import com.vaultcore.exception.AccountNotFoundException;
 import com.vaultcore.repository.AccountRepository;
 import com.vaultcore.repository.TransactionRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
-import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-
-import javax.crypto.Cipher;
-import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -25,15 +22,48 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
-@Slf4j
 public class StatementService {
+
+    private static final Logger log = LoggerFactory.getLogger(StatementService.class);
 
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
 
-    @Value("${app.statement.encryption-key:VaultCoreAES128K}")
-    private String encryptionKey;
+    public StatementService(TransactionRepository transactionRepository, AccountRepository accountRepository) {
+        this.transactionRepository = transactionRepository;
+        this.accountRepository = accountRepository;
+    }
+
+    public byte[] generateStatement(UUID accountId, String month, UUID requesterUserId) {
+        var account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + accountId));
+        if (!account.getUser().getId().equals(requesterUserId)) {
+            throw new AccountNotFoundException("Account not found: " + accountId);
+        }
+        return generateStatement(accountId, month);
+    }
+
+    /**
+     * Generate a PDF statement for a flexible date range.
+     * If startDate or endDate are null, defaults to the current calendar month.
+     */
+    public byte[] generateStatementForRange(UUID accountId, UUID requesterUserId, LocalDate startDate, LocalDate endDate) {
+        var account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + accountId));
+        if (!account.getUser().getId().equals(requesterUserId)) {
+            throw new AccountNotFoundException("Account not found: " + accountId);
+        }
+
+        LocalDate effectiveStart = (startDate != null) ? startDate : LocalDate.now().withDayOfMonth(1);
+        LocalDate effectiveEnd   = (endDate   != null) ? endDate   : LocalDate.now();
+        LocalDateTime start = effectiveStart.atStartOfDay();
+        LocalDateTime end   = effectiveEnd.atTime(23, 59, 59);
+
+        List<Transaction> transactions = transactionRepository.findByAccountIdAndDateRange(accountId, start, end);
+        String period = effectiveStart + " to " + effectiveEnd;
+
+        return buildPdf(account, transactions, period);
+    }
 
     public byte[] generateStatement(UUID accountId, String month) {
         var account = accountRepository.findById(accountId)
@@ -44,7 +74,12 @@ public class StatementService {
         LocalDateTime end = yearMonth.atEndOfMonth().atTime(23, 59, 59);
 
         List<Transaction> transactions = transactionRepository.findByAccountIdAndDateRange(accountId, start, end);
+        return buildPdf(account, transactions, month);
+    }
 
+    // ── Shared PDF builder ───────────────────────────────────────────────────────
+
+    private byte[] buildPdf(com.vaultcore.entity.Account account, List<Transaction> transactions, String period) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             PDDocument document = new PDDocument();
@@ -52,10 +87,10 @@ public class StatementService {
             document.addPage(page);
 
             PDPageContentStream contentStream = new PDPageContentStream(document, page);
-            PDType1Font fontBold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
+            PDType1Font fontBold    = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
             PDType1Font fontRegular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
 
-            float y = 750;
+            float y      = 750;
             float margin = 50;
 
             // Header
@@ -69,7 +104,7 @@ public class StatementService {
             contentStream.beginText();
             contentStream.setFont(fontRegular, 12);
             contentStream.newLineAtOffset(margin, y);
-            contentStream.showText("Account Statement — " + month);
+            contentStream.showText("Account Statement — " + period);
             contentStream.endText();
             y -= 20;
 
@@ -125,35 +160,10 @@ public class StatementService {
             document.save(baos);
             document.close();
 
-            // AES-128 encryption
-            return encryptPdf(baos.toByteArray());
+            return baos.toByteArray();
         } catch (Exception e) {
-            log.error("Error generating statement for account {}: {}", accountId, e.getMessage(), e);
+            log.error("Error generating statement: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to generate statement", e);
         }
-    }
-
-    private byte[] encryptPdf(byte[] data) throws Exception {
-        byte[] keyBytes = encryptionKey.getBytes();
-        // Ensure 16-byte key for AES-128
-        byte[] key16 = new byte[16];
-        System.arraycopy(keyBytes, 0, key16, 0, Math.min(keyBytes.length, 16));
-
-        SecretKeySpec secretKey = new SecretKeySpec(key16, "AES");
-        
-        byte[] iv = new byte[16];
-        new java.security.SecureRandom().nextBytes(iv);
-        javax.crypto.spec.IvParameterSpec ivSpec = new javax.crypto.spec.IvParameterSpec(iv);
-
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey, ivSpec);
-        
-        byte[] encrypted = cipher.doFinal(data);
-        
-        byte[] finalResult = new byte[iv.length + encrypted.length];
-        System.arraycopy(iv, 0, finalResult, 0, iv.length);
-        System.arraycopy(encrypted, 0, finalResult, iv.length, encrypted.length);
-        
-        return finalResult;
     }
 }

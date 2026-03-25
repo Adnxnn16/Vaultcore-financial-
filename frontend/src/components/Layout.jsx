@@ -12,36 +12,48 @@ export default function Layout() {
     navigate('/login');
   };
 
+  const isAdmin = user?.role === 'ADMIN';
+
   return (
     <div className="app-layout">
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo">
-            <span className="logo-icon">◆</span>
+            <span className="material-symbols-outlined logo-icon">shield</span>
             <span className="logo-text">VaultCore</span>
           </div>
-          <span className="logo-subtitle">Financial</span>
         </div>
+        
         <nav className="sidebar-nav">
           <NavLink to="/" end className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📊</span> Dashboard
+            <span className="material-symbols-outlined">dashboard</span> Dashboard
           </NavLink>
-          <NavLink to="/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🏦</span> Accounts
-          </NavLink>
-          <NavLink to="/transfer" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">💸</span> Transfer
-          </NavLink>
-          <NavLink to="/stocks" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📈</span> Stocks
-          </NavLink>
+          
+          {!isAdmin && (
+            <>
+              <NavLink to="/accounts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="material-symbols-outlined">account_balance</span> Accounts
+              </NavLink>
+              <NavLink to="/transfer" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="material-symbols-outlined">payments</span> Transfer
+              </NavLink>
+              <NavLink to="/stocks" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                <span className="material-symbols-outlined">trending_up</span> Stocks
+              </NavLink>
+            </>
+          )}
+
           <NavLink to="/statements" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">📄</span> Statements
+            <span className="material-symbols-outlined">description</span> Statements
           </NavLink>
-          <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-            <span className="nav-icon">🔍</span> Audit Log
-          </NavLink>
+
+          {isAdmin && (
+            <NavLink to="/audit" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+              <span className="material-symbols-outlined">verified_user</span> Audit Log
+            </NavLink>
+          )}
         </nav>
+
         <div className="sidebar-footer">
           <div className="user-info">
             <div className="user-avatar">{user?.fullName?.[0] || 'U'}</div>
@@ -50,12 +62,16 @@ export default function Layout() {
               <span className="user-role">{user?.role || 'Account Holder'}</span>
             </div>
           </div>
-          <button className="logout-btn" onClick={handleLogout}>Sign Out</button>
+          <button className="nav-link" onClick={handleLogout} style={{ width: '100%', cursor: 'pointer', border: 'none', background: 'transparent' }}>
+            <span className="material-symbols-outlined">logout</span> Sign Out
+          </button>
         </div>
       </aside>
+      
       <main className="main-content">
         <Outlet />
       </main>
     </div>
+
   );
 }
