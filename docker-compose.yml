@@ -1,0 +1,122 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL 15 ──────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: vaultcore-postgres
+    environment:
+      POSTGRES_DB: vaultcore
+      POSTGRES_USER: vaultcore
+      POSTGRES_PASSWORD: vaultcore_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultcore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vaultcore-net
+
+  # ── Redis ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vaultcore-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vaultcore-net
+
+  # ── Keycloak ───────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: vaultcore-keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/vaultcore_auth
+      KC_DB_USERNAME: vaultcore
+      KC_DB_PASSWORD: vaultcore_secret
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_PORT: 9090
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9090 && echo 'Keycloak is up'"]
+      interval: 15s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vaultcore-net
+
+  # ── Spring Boot Backend ────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vaultcore-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: vaultcore_app
+      DB_USER: vaultcore
+      DB_PASSWORD: vaultcore_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KEYCLOAK_ISSUER_URI: http://keycloak:9090/realms/vaultcore
+      KEYCLOAK_JWK_URI: http://keycloak:9090/realms/vaultcore/protocol/openid-connect/certs
+      KEYCLOAK_CLIENT_ID: vaultcore-app
+      KEYCLOAK_CLIENT_SECRET: vaultcore-secret
+      STATEMENT_ENC_KEY: VaultCoreAES128K
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - vaultcore-net
+
+  # ── React Frontend ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vaultcore-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - vaultcore-net
+
+volumes:
+  postgres_data:
+
+networks:
+  vaultcore-net:
+    driver: bridge
