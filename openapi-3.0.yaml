@@ -1,0 +1,528 @@
+openapi: 3.0.1
+info:
+  title: OpenAPI definition
+  version: v0
+servers:
+- url: http://localhost:8080
+  description: Generated server url
+paths:
+  /api/v1/transfers:
+    post:
+      tags:
+      - transfer-controller
+      operationId: transfer
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/TransferResponse"
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - auth-controller
+      operationId: refresh
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseMapStringObject"
+  /api/v1/auth/mfa/verify:
+    post:
+      tags:
+      - mfa-controller
+      operationId: verifyMfa
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaVerifyRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseMapStringObject"
+  /api/v1/auth/login:
+    post:
+      tags:
+      - auth-controller
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseMapStringObject"
+  /api/v1/stocks/positions/{symbol}:
+    get:
+      tags:
+      - stock-controller
+      operationId: getStock
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/StockPositionResponse"
+  /api/v1/stocks/portfolio:
+    get:
+      tags:
+      - stock-controller
+      operationId: getPortfolio
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/PortfolioResponse"
+  /api/v1/statements:
+    get:
+      tags:
+      - statement-controller
+      operationId: listStatements
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/v1/statements/{month}:
+    get:
+      tags:
+      - statement-controller
+      operationId: getStatement
+      parameters:
+      - name: month
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: accountId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: byte
+  /api/v1/audit/logs:
+    get:
+      tags:
+      - audit-controller
+      operationId: getAuditLogs_1_1
+      parameters:
+      - name: pageable
+        in: query
+        required: true
+        schema:
+          $ref: "#/components/schemas/Pageable"
+      - name: userId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: method
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/PageAuditLog"
+  /api/v1/accounts:
+    get:
+      tags:
+      - account-controller
+      operationId: getAccountsByUser
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccountResponse"
+  /api/v1/accounts/{accountId}:
+    get:
+      tags:
+      - account-controller
+      operationId: getAccount
+      parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/AccountResponse"
+  /api/v1/accounts/{accountId}/balance:
+    get:
+      tags:
+      - account-controller
+      operationId: getBalance
+      parameters:
+      - name: accountId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: number
+  /api/v1/auth/logout:
+    delete:
+      tags:
+      - auth-controller
+      operationId: logout
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+components:
+  schemas:
+    TransferRequest:
+      required:
+      - amount
+      - destinationAccountNumber
+      - sourceAccountNumber
+      type: object
+      properties:
+        sourceAccountNumber:
+          type: string
+        destinationAccountNumber:
+          type: string
+        amount:
+          minimum: 0.01
+          exclusiveMinimum: false
+          type: number
+        description:
+          maxLength: 500
+          minLength: 0
+          type: string
+        currency:
+          type: string
+        otpCode:
+          type: string
+    TransferResponse:
+      type: object
+      properties:
+        referenceNumber:
+          type: string
+        sourceAccountNumber:
+          type: string
+        destinationAccountNumber:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+        description:
+          type: string
+        completedAt:
+          type: string
+          format: date-time
+        mfaRequired:
+          type: boolean
+        message:
+          type: string
+    ApiResponseMapStringObject:
+      type: object
+      properties:
+        status:
+          type: integer
+          format: int32
+        error:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties:
+            type: object
+    MfaVerifyRequest:
+      required:
+      - otp
+      type: object
+      properties:
+        otp:
+          type: string
+    LoginRequest:
+      required:
+      - email
+      - password
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    StockPositionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        companyName:
+          type: string
+        quantity:
+          type: number
+        averageCost:
+          type: number
+        currentPrice:
+          type: number
+        totalValue:
+          type: number
+        gainLoss:
+          type: number
+        gainLossPercent:
+          type: number
+    PortfolioResponse:
+      type: object
+      properties:
+        totalValue:
+          type: number
+        totalCost:
+          type: number
+        totalGainLoss:
+          type: number
+        totalGainLossPercent:
+          type: number
+        positions:
+          type: array
+          items:
+            $ref: "#/components/schemas/StockPositionResponse"
+    Pageable:
+      type: object
+      properties:
+        page:
+          minimum: 0
+          type: integer
+          format: int32
+        size:
+          minimum: 1
+          type: integer
+          format: int32
+        sort:
+          type: array
+          items:
+            type: string
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        methodName:
+          type: string
+        parameters:
+          type: string
+        result:
+          type: string
+        ipAddress:
+          type: string
+        status:
+          type: string
+        errorMessage:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    PageAuditLog:
+      type: object
+      properties:
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+        pageable:
+          $ref: "#/components/schemas/PageableObject"
+        numberOfElements:
+          type: integer
+          format: int32
+        first:
+          type: boolean
+        last:
+          type: boolean
+        size:
+          type: integer
+          format: int32
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLog"
+        number:
+          type: integer
+          format: int32
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortObject"
+        empty:
+          type: boolean
+    PageableObject:
+      type: object
+      properties:
+        unpaged:
+          type: boolean
+        pageNumber:
+          type: integer
+          format: int32
+        paged:
+          type: boolean
+        pageSize:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int64
+        sort:
+          type: array
+          items:
+            $ref: "#/components/schemas/SortObject"
+    SortObject:
+      type: object
+      properties:
+        direction:
+          type: string
+        nullHandling:
+          type: string
+        ascending:
+          type: boolean
+        property:
+          type: string
+        ignoreCase:
+          type: boolean
+    AccountResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        accountNumber:
+          type: string
+        accountType:
+          type: string
+        balance:
+          type: number
+        currency:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        ownerName:
+          type: string
+    ApiResponseVoid:
+      type: object
+      properties:
+        status:
+          type: integer
+          format: int32
+        error:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        data:
+          type: object

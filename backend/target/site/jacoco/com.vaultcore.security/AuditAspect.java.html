@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuditAspect.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">VaultCore Financial</a> &gt; <a href="index.source.html" class="el_package">com.vaultcore.security</a> &gt; <span class="el_source">AuditAspect.java</span></div><h1>AuditAspect.java</h1><pre class="source lang-java linenums">package com.vaultcore.security;
+
+import com.vaultcore.service.AuditService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+
+/**
+ * AOP Aspect for automatic audit logging.
+ * Wraps all controller methods to capture:
+ * - method name
+ * - parameters
+ * - result
+ * - userId (from security context)
+ * - timestamp
+ */
+@Aspect
+@Component
+@RequiredArgsConstructor
+<span class="fc" id="L25">@Slf4j</span>
+public class AuditAspect {
+
+    private final AuditService auditService;
+
+    @Around(&quot;execution(* com.vaultcore.controller..*(..))&quot;)
+    public Object auditMethod(ProceedingJoinPoint joinPoint) throws Throwable {
+<span class="nc" id="L32">        String methodName = joinPoint.getSignature().toShortString();</span>
+<span class="nc" id="L33">        String params = Arrays.toString(joinPoint.getArgs());</span>
+
+        try {
+<span class="nc" id="L36">            Object result = joinPoint.proceed();</span>
+<span class="nc" id="L37">            auditService.logAction(</span>
+<span class="nc" id="L38">                    extractAction(methodName),</span>
+                    methodName,
+                    params,
+<span class="nc bnc" id="L41" title="All 2 branches missed.">                    result != null ? result.toString() : &quot;void&quot;,</span>
+                    &quot;SUCCESS&quot;,
+                    null
+            );
+<span class="nc" id="L45">            return result;</span>
+<span class="nc" id="L46">        } catch (Exception ex) {</span>
+<span class="nc" id="L47">            auditService.logAction(</span>
+<span class="nc" id="L48">                    extractAction(methodName),</span>
+                    methodName,
+                    params,
+                    null,
+                    &quot;FAILURE&quot;,
+<span class="nc" id="L53">                    ex.getMessage()</span>
+            );
+<span class="nc" id="L55">            throw ex;</span>
+        }
+    }
+
+    private String extractAction(String methodName) {
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        if (methodName.contains(&quot;transfer&quot;)) return &quot;TRANSFER&quot;;</span>
+<span class="nc bnc" id="L61" title="All 2 branches missed.">        if (methodName.contains(&quot;getBalance&quot;)) return &quot;BALANCE_CHECK&quot;;</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">        if (methodName.contains(&quot;getAccount&quot;)) return &quot;ACCOUNT_VIEW&quot;;</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">        if (methodName.contains(&quot;getPortfolio&quot;)) return &quot;PORTFOLIO_VIEW&quot;;</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">        if (methodName.contains(&quot;getStatement&quot;)) return &quot;STATEMENT_DOWNLOAD&quot;;</span>
+<span class="nc bnc" id="L65" title="All 2 branches missed.">        if (methodName.contains(&quot;getAudit&quot;)) return &quot;AUDIT_VIEW&quot;;</span>
+<span class="nc" id="L66">        return &quot;API_CALL&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

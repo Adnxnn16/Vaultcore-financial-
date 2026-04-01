@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuthController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">VaultCore Financial</a> &gt; <a href="index.source.html" class="el_package">com.vaultcore.controller</a> &gt; <span class="el_source">AuthController.java</span></div><h1>AuthController.java</h1><pre class="source lang-java linenums">package com.vaultcore.controller;
+
+import com.vaultcore.dto.ApiResponse;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.reactive.function.BodyInserters;
+import reactor.core.publisher.Mono;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+
+@RestController
+@RequestMapping(&quot;/api/v1/auth&quot;)
+public class AuthController {
+
+    private final WebClient webClient;
+    private final StringRedisTemplate redisTemplate;
+    private final PasswordEncoder passwordEncoder;
+
+    @Value(&quot;${KEYCLOAK_ISSUER_URI:http://localhost:9090/realms/vaultcore}&quot;)
+    private String keycloakIssuerUri;
+
+    @Value(&quot;${KEYCLOAK_CLIENT_ID:vaultcore-app}&quot;)
+    private String keycloakClientId;
+
+    @Value(&quot;${KEYCLOAK_CLIENT_SECRET:vaultcore-secret}&quot;)
+    private String keycloakClientSecret;
+
+<span class="fc" id="L51">    public AuthController(WebClient webClient, StringRedisTemplate redisTemplate, PasswordEncoder passwordEncoder) {</span>
+<span class="fc" id="L52">        this.webClient = webClient;</span>
+<span class="fc" id="L53">        this.redisTemplate = redisTemplate;</span>
+<span class="fc" id="L54">        this.passwordEncoder = passwordEncoder;</span>
+<span class="fc" id="L55">    }</span>
+
+<span class="nc" id="L57">    public record LoginRequest(</span>
+            @NotBlank @Email String email,
+            @NotBlank String password
+    ) {}
+
+<span class="nc" id="L62">    public record KeycloakTokenResponse(</span>
+            String access_token,
+            Integer expires_in,
+            String refresh_token,
+            Integer refresh_expires_in,
+            String token_type
+    ) {}
+
+    @PostMapping(&quot;/login&quot;)
+    public ResponseEntity&lt;ApiResponse&lt;Map&lt;String, Object&gt;&gt;&gt; login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletResponse response
+    ) {
+<span class="nc" id="L75">        String tokenEndpoint = keycloakIssuerUri + &quot;/protocol/openid-connect/token&quot;;</span>
+
+<span class="nc" id="L77">        KeycloakTokenResponse tokens = webClient.post()</span>
+<span class="nc" id="L78">                .uri(tokenEndpoint)</span>
+<span class="nc" id="L79">                .contentType(MediaType.APPLICATION_FORM_URLENCODED)</span>
+<span class="nc" id="L80">                .body(BodyInserters.fromFormData(&quot;grant_type&quot;, &quot;password&quot;)</span>
+<span class="nc" id="L81">                        .with(&quot;client_id&quot;, keycloakClientId)</span>
+<span class="nc" id="L82">                        .with(&quot;client_secret&quot;, keycloakClientSecret)</span>
+<span class="nc" id="L83">                        .with(&quot;username&quot;, request.email())</span>
+<span class="nc" id="L84">                        .with(&quot;password&quot;, request.password()))</span>
+<span class="nc" id="L85">                .retrieve()</span>
+<span class="nc" id="L86">                .bodyToMono(KeycloakTokenResponse.class)</span>
+<span class="nc" id="L87">                .timeout(Duration.ofSeconds(10))</span>
+<span class="nc" id="L88">                .onErrorReturn(null)</span>
+<span class="nc" id="L89">                .block();</span>
+
+<span class="nc bnc" id="L91" title="All 4 branches missed.">        if (tokens == null || tokens.refresh_token() == null) {</span>
+<span class="nc" id="L92">            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)</span>
+<span class="nc" id="L93">                    .body(ApiResponse.&lt;Map&lt;String, Object&gt;&gt;builder()</span>
+<span class="nc" id="L94">                            .status(HttpStatus.UNAUTHORIZED.value())</span>
+<span class="nc" id="L95">                            .error(&quot;AUTH_FAILED&quot;)</span>
+<span class="nc" id="L96">                            .message(&quot;Keycloak login failed&quot;)</span>
+<span class="nc" id="L97">                            .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L98">                            .data(null)</span>
+<span class="nc" id="L99">                            .build());</span>
+        }
+
+<span class="nc" id="L102">        setRefreshCookie(response, tokens.refresh_token(), tokens.refresh_expires_in());</span>
+
+<span class="nc" id="L104">        return ResponseEntity.ok(ApiResponse.ok(&quot;Login successful&quot;,</span>
+<span class="nc" id="L105">                Map.of(&quot;accessToken&quot;, tokens.access_token(), &quot;expiresIn&quot;, tokens.expires_in())));</span>
+    }
+
+    @PostMapping(&quot;/refresh&quot;)
+    public ResponseEntity&lt;ApiResponse&lt;Map&lt;String, Object&gt;&gt;&gt; refresh(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+<span class="nc" id="L113">        String refreshToken = readCookieValue(request, &quot;refresh_token&quot;);</span>
+<span class="nc bnc" id="L114" title="All 4 branches missed.">        if (refreshToken == null || refreshToken.isBlank()) {</span>
+<span class="nc" id="L115">            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)</span>
+<span class="nc" id="L116">                    .body(ApiResponse.&lt;Map&lt;String, Object&gt;&gt;builder()</span>
+<span class="nc" id="L117">                            .status(HttpStatus.UNAUTHORIZED.value())</span>
+<span class="nc" id="L118">                            .error(&quot;REFRESH_TOKEN_MISSING&quot;)</span>
+<span class="nc" id="L119">                            .message(&quot;Refresh token cookie missing&quot;)</span>
+<span class="nc" id="L120">                            .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L121">                            .data(null)</span>
+<span class="nc" id="L122">                            .build());</span>
+        }
+
+<span class="nc" id="L125">        String tokenEndpoint = keycloakIssuerUri + &quot;/protocol/openid-connect/token&quot;;</span>
+
+<span class="nc" id="L127">        KeycloakTokenResponse tokens = webClient.post()</span>
+<span class="nc" id="L128">                .uri(tokenEndpoint)</span>
+<span class="nc" id="L129">                .contentType(MediaType.APPLICATION_FORM_URLENCODED)</span>
+<span class="nc" id="L130">                .body(BodyInserters.fromFormData(&quot;grant_type&quot;, &quot;refresh_token&quot;)</span>
+<span class="nc" id="L131">                        .with(&quot;client_id&quot;, keycloakClientId)</span>
+<span class="nc" id="L132">                        .with(&quot;client_secret&quot;, keycloakClientSecret)</span>
+<span class="nc" id="L133">                        .with(&quot;refresh_token&quot;, refreshToken))</span>
+<span class="nc" id="L134">                .retrieve()</span>
+<span class="nc" id="L135">                .bodyToMono(KeycloakTokenResponse.class)</span>
+<span class="nc" id="L136">                .timeout(Duration.ofSeconds(10))</span>
+<span class="nc" id="L137">                .onErrorReturn(null)</span>
+<span class="nc" id="L138">                .block();</span>
+
+<span class="nc bnc" id="L140" title="All 4 branches missed.">        if (tokens == null || tokens.refresh_token() == null) {</span>
+<span class="nc" id="L141">            clearRefreshCookie(response);</span>
+<span class="nc" id="L142">            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)</span>
+<span class="nc" id="L143">                    .body(ApiResponse.&lt;Map&lt;String, Object&gt;&gt;builder()</span>
+<span class="nc" id="L144">                            .status(HttpStatus.UNAUTHORIZED.value())</span>
+<span class="nc" id="L145">                            .error(&quot;REFRESH_FAILED&quot;)</span>
+<span class="nc" id="L146">                            .message(&quot;Keycloak refresh failed&quot;)</span>
+<span class="nc" id="L147">                            .timestamp(LocalDateTime.now())</span>
+<span class="nc" id="L148">                            .data(null)</span>
+<span class="nc" id="L149">                            .build());</span>
+        }
+
+<span class="nc" id="L152">        setRefreshCookie(response, tokens.refresh_token(), tokens.refresh_expires_in());</span>
+
+<span class="nc" id="L154">        return ResponseEntity.ok(ApiResponse.ok(&quot;Token refreshed&quot;,</span>
+<span class="nc" id="L155">                Map.of(&quot;accessToken&quot;, tokens.access_token(), &quot;expiresIn&quot;, tokens.expires_in())));</span>
+    }
+
+    @DeleteMapping(&quot;/logout&quot;)
+    public ResponseEntity&lt;ApiResponse&lt;Void&gt;&gt; logout(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+<span class="nc" id="L163">        String refreshToken = readCookieValue(request, &quot;refresh_token&quot;);</span>
+
+<span class="nc bnc" id="L165" title="All 4 branches missed.">        if (refreshToken != null &amp;&amp; !refreshToken.isBlank()) {</span>
+<span class="nc" id="L166">            String revokeEndpoint = keycloakIssuerUri + &quot;/protocol/openid-connect/revoke&quot;;</span>
+
+<span class="nc" id="L168">            webClient.post()</span>
+<span class="nc" id="L169">                    .uri(revokeEndpoint)</span>
+<span class="nc" id="L170">                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)</span>
+<span class="nc" id="L171">                    .body(BodyInserters.fromFormData(&quot;client_id&quot;, keycloakClientId)</span>
+<span class="nc" id="L172">                            .with(&quot;client_secret&quot;, keycloakClientSecret)</span>
+<span class="nc" id="L173">                            .with(&quot;token&quot;, refreshToken))</span>
+<span class="nc" id="L174">                    .retrieve()</span>
+<span class="nc" id="L175">                    .toBodilessEntity()</span>
+<span class="nc" id="L176">                    .timeout(Duration.ofSeconds(10))</span>
+<span class="nc" id="L177">                    .onErrorResume(ex -&gt; Mono.empty())</span>
+<span class="nc" id="L178">                    .block();</span>
+        }
+
+<span class="nc" id="L181">        clearRefreshCookie(response);</span>
+
+<span class="nc" id="L183">        return ResponseEntity.ok(ApiResponse.ok(&quot;Logged out&quot;, null));</span>
+    }
+
+    // MFA endpoints extracted to MfaController according to PRD component specs.
+
+    private void setRefreshCookie(HttpServletResponse response, String refreshToken, Integer refreshExpiresInSeconds) {
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        int maxAgeSeconds = refreshExpiresInSeconds != null ? refreshExpiresInSeconds : 7 * 24 * 60 * 60;</span>
+<span class="nc" id="L190">        Cookie cookie = new Cookie(&quot;refresh_token&quot;, refreshToken);</span>
+<span class="nc" id="L191">        cookie.setHttpOnly(true);</span>
+<span class="nc" id="L192">        cookie.setSecure(true);</span>
+<span class="nc" id="L193">        cookie.setPath(&quot;/&quot;);</span>
+<span class="nc" id="L194">        cookie.setMaxAge(maxAgeSeconds);</span>
+<span class="nc" id="L195">        response.addCookie(cookie);</span>
+<span class="nc" id="L196">    }</span>
+
+    private void clearRefreshCookie(HttpServletResponse response) {
+<span class="nc" id="L199">        Cookie cookie = new Cookie(&quot;refresh_token&quot;, &quot;&quot;);</span>
+<span class="nc" id="L200">        cookie.setHttpOnly(true);</span>
+<span class="nc" id="L201">        cookie.setSecure(true);</span>
+<span class="nc" id="L202">        cookie.setPath(&quot;/&quot;);</span>
+<span class="nc" id="L203">        cookie.setMaxAge(0);</span>
+<span class="nc" id="L204">        response.addCookie(cookie);</span>
+<span class="nc" id="L205">    }</span>
+
+    private String readCookieValue(HttpServletRequest request, String cookieName) {
+<span class="nc" id="L208">        Cookie[] cookies = request.getCookies();</span>
+<span class="nc bnc" id="L209" title="All 2 branches missed.">        if (cookies == null) return null;</span>
+<span class="nc bnc" id="L210" title="All 2 branches missed.">        for (Cookie cookie : cookies) {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">            if (cookieName.equals(cookie.getName())) return cookie.getValue();</span>
+        }
+<span class="nc" id="L213">        return null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
