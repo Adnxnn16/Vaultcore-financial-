@@ -47,11 +47,7 @@ docker-compose up -d postgres redis keycloak
    ```
 2. Compile and run the application:
    ```bash
-   # On Windows
-   .\mvnw spring-boot:run
-   
-   # On Mac/Linux
-   ./mvnw spring-boot:run
+   mvn spring-boot:run
    ```
 3. The backend will start on **http://localhost:8080**.
 
@@ -90,9 +86,22 @@ Once the system is up and running, you can access the following services:
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **VaultCore Web App** | [http://localhost:3000](http://localhost:3000) (or `5173`) | Register a new user via the UI |
+| **VaultCore Web App** | [http://localhost:3000](http://localhost:3000) (or `5173`) | **User:** `john.doe` <br> **Pass:** `Password123` <br> *(Or register a new user via UI)* |
 | **Backend API Docs (Swagger)** | [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) | N/A |
 | **Keycloak Admin Console** | [http://localhost:9090](http://localhost:9090) | **User:** `admin` <br> **Pass:** `admin` |
+
+---
+
+## 🛑 Stopping the Application
+
+To completely shut down the project when you are finished:
+
+1. **Stop the Frontend & Backend**: If you are running them manually in your terminal, simply go to their respective terminal windows and press `Ctrl + C`.
+2. **Stop the Infrastructure (Docker)**: Open a terminal in the root directory and run:
+   ```bash
+   docker-compose down
+   ```
+   *(This will safely stop and clean up Keycloak, PostgreSQL, and Redis)*
 
 ---
 
