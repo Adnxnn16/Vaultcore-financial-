@@ -110,3 +110,25 @@ To completely shut down the project when you are finished:
 2. **Advanced Security**: Keycloak integration for OAuth2/OIDC, plus Spring Security for RBAC.
 3. **Fraud & Risk Mitigation**: Transactions exceeding thresholds trigger MFA Challenges (2FA) backed by Redis.
 4. **Modern UI/UX**: Built with React and TailwindCSS using a premium, high-density professional design system.
+
+---
+
+## 📸 Screenshots
+
+### User Login
+![User Login](screenshots/1.User%20Login.png)
+
+### User Dashboard
+![User Dashboard](screenshots/2.User%20Dashboard.png)
+
+### My Account
+![My Account](screenshots/3.My%20Account.png)
+
+### Money Transfer
+![Money Transfer](screenshots/4.Money%20Transfer.png)
+
+### Stock Portfolio
+![Stock Portfolio](screenshots/5.Stock%20Portfolio.png)
+
+### Account Statements
+![Account Statements](screenshots/6.Account%20Statments.png)
